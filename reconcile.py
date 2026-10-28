@@ -5,16 +5,34 @@ Reads payments.jsonl and works out how much money we actually collected.
 Run:  python3 reconcile.py
 """
 import json
+from decimal import Decimal, ROUND_HALF_UP
 
-total = 0.0
-count = 0
+latest_events = {}
 
 with open("payments.jsonl") as f:
     for line in f:
-        event = json.loads(line)
-        if event["status"] == "success":
-            total += float(event["amount"])
-            count += 1
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        txn_id = event.get("txn_id")
+        if not txn_id:
+            continue
+
+        previous = latest_events.get(txn_id)
+        if previous is None or event["ts"] >= previous["ts"]:
+            latest_events[txn_id] = event
+
+total = Decimal("0")
+successful_events = [
+    event for event in latest_events.values() if event["status"] == "success"
+]
+for event in successful_events:
+    amount = str(event["amount"]).replace(",", "")
+    total += Decimal(amount)
+
+count = len(successful_events)
 
 with open("expected.txt") as f:
     expected = int(f.read().strip())
@@ -24,4 +42,5 @@ if count != expected:
     print("Something in the data isn't being handled the way the README describes.")
 else:
     print(f"Check passed: {count} successful payments.")
-    print(f"Your code: KOYA-{round(total)}")
+    rounded_total = total.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    print(f"Your code: KOYA-{rounded_total}")
